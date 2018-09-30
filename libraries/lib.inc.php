@@ -16,7 +16,7 @@
 	$appName = 'phpPgAdmin';
 
 	// Application version
-	$appVersion = '5.2-dev';
+	$appVersion = '5.2-ospanel';
 
 	// PostgreSQL and PHP minimum version
 	$postgresqlMinVer = '7.4';

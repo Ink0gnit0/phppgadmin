@@ -5,9 +5,9 @@
  *
  */
 
-include_once('./classes/database/Postgres94.php');
+include_once('./classes/database/Postgres.php');
 
-class Postgres93 extends Postgres94 {
+class Postgres93 extends Postgres {
 
 	var $major_version = 9.3;
 
@@ -15,8 +15,8 @@ class Postgres93 extends Postgres94 {
 	 * Constructor
 	 * @param $conn The database connection
 	 */
-	function Postgres93($conn) {
-		$this->Postgres($conn);
+	function __construct($conn) {
+		parent::__construct($conn);
 	}
 
 	// Help functions
