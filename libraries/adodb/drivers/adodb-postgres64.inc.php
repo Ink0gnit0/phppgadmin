@@ -117,7 +117,7 @@ WHERE relkind in ('r','v') AND (c.relname='%s' or c.relname = lower('%s'))
 	// to know what the concequences are. The other values are correct (wheren't in 0.94)
 	// -- Freek Dijkstra 
 
-	function __construct() 
+	function ADODB_postgres64() 
 	{
 	// changes the metaColumnsSQL, adds columns: attnum[6]
 	}
@@ -889,7 +889,7 @@ class ADORecordSet_postgres64 extends ADORecordSet{
 		default: $this->fetchMode = PGSQL_BOTH; break;
 		}
 		$this->adodbFetchMode = $mode;
-		parent::__construct($queryID);
+		parent::__construct($queryID); 
 	}
 	
 	function GetRowAssoc($upper=true)

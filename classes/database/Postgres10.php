@@ -1,30 +1,15 @@
 <?php
 
 /**
- * PostgreSQL 8.4 support
+ * PostgreSQL 10 support
  *
- * $Id: Postgres82.php,v 1.10 2007/12/28 16:21:25 ioguix Exp $
  */
 
-include_once('./classes/database/Postgres90.php');
+include_once('./classes/database/Postgres.php');
 
-class Postgres84 extends Postgres90 {
+class Postgres10 extends Postgres {
 
-	var $major_version = 8.4;
-
-	// List of all legal privileges that can be applied to different types
-	// of objects.
-	var $privlist = array(
-  		'table' => array('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'REFERENCES', 'TRIGGER', 'ALL PRIVILEGES'),
-  		'view' => array('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'REFERENCES', 'TRIGGER', 'ALL PRIVILEGES'),
-  		'sequence' => array('USAGE', 'SELECT', 'UPDATE', 'ALL PRIVILEGES'),
-  		'database' => array('CREATE', 'TEMPORARY', 'CONNECT', 'ALL PRIVILEGES'),
-  		'function' => array('EXECUTE', 'ALL PRIVILEGES'),
-  		'language' => array('USAGE', 'ALL PRIVILEGES'),
-  		'schema' => array('CREATE', 'USAGE', 'ALL PRIVILEGES'),
-  		'tablespace' => array('CREATE', 'ALL PRIVILEGES'),
-		'column' => array('SELECT', 'INSERT', 'UPDATE', 'REFERENCES','ALL PRIVILEGES')
-	);
+	var $major_version = 10;
 
 	/**
 	 * Constructor
@@ -34,42 +19,6 @@ class Postgres84 extends Postgres90 {
 		parent::__construct($conn);
 	}
 
-	// Help functions
-
-	function getHelpPages() {
-		include_once('./help/PostgresDoc84.php');
-		return $this->help_page;
-	}
-
-	// Database functions
-
-	/**
-	 * Grabs a list of triggers on a table
-	 * @param $table The name of a table whose triggers to retrieve
-	 * @return A recordset
-	 */
-	function getTriggers($table = '') {
-		$c_schema = $this->_schema;
-		$this->clean($c_schema);
-		$this->clean($table);
-
-		$sql = "SELECT
-				t.tgname, pg_catalog.pg_get_triggerdef(t.oid) AS tgdef,
-				CASE WHEN t.tgenabled = 'D' THEN FALSE ELSE TRUE END AS tgenabled, p.oid AS prooid,
-				p.proname || ' (' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS proproto,
-				ns.nspname AS pronamespace
-			FROM pg_catalog.pg_trigger t, pg_catalog.pg_proc p, pg_catalog.pg_namespace ns
-			WHERE t.tgrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname='{$table}'
-				AND relnamespace=(SELECT oid FROM pg_catalog.pg_namespace WHERE nspname='{$c_schema}'))
-				AND (NOT tgisconstraint OR NOT EXISTS
-						(SELECT 1 FROM pg_catalog.pg_depend d    JOIN pg_catalog.pg_constraint c
-							ON (d.refclassid = c.tableoid AND d.refobjid = c.oid)
-						WHERE d.classid = t.tableoid AND d.objid = t.oid AND d.deptype = 'i' AND c.contype = 'f'))
-				AND p.oid=t.tgfoid
-				AND p.pronamespace = ns.oid";
-
-		return $this->selectSet($sql);
-	}
 
 	/**
 	 * Searches all system catalogs to find objects that match a certain name.
@@ -154,7 +103,7 @@ class Postgres84 extends Postgres90 {
 			UNION ALL
 			SELECT 'TRIGGER', NULL, pn.nspname, pc.relname, pt.tgname FROM pg_catalog.pg_class pc, pg_catalog.pg_namespace pn,
 				pg_catalog.pg_trigger pt WHERE pc.relnamespace=pn.oid AND pc.oid=pt.tgrelid
-					AND ( NOT pt.tgisconstraint OR NOT EXISTS
+					AND ( pt.tgconstraint = 0 OR NOT EXISTS
 					(SELECT 1 FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_constraint c
 					ON (d.refclassid = c.tableoid AND d.refobjid = c.oid)
 					WHERE d.classid = pt.tableoid AND d.objid = pt.oid AND d.deptype = 'i' AND c.contype = 'f'))
@@ -170,6 +119,7 @@ class Postgres84 extends Postgres90 {
 				LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid = c.relnamespace
 				WHERE c.relkind='v' AND r.rulename != '_RETURN' AND r.rulename ILIKE {$term} {$where}
 		";
+
 
 		// Add advanced objects if show_advanced is set
 		if ($conf['show_advanced']) {
@@ -221,11 +171,107 @@ class Postgres84 extends Postgres90 {
 		return $this->selectSet($sql);
 	}
 
+	/**
+	 * Returns a list of all functions in the database
+	 * @param $all If true, will find all available functions, if false just those in search path
+	 * @param $type If not null, will find all functions with return value = type
+	 *
+  	 * @return All functions
+	 */
+	function getFunctions($all = false, $type = null) {
+		if ($all) {
+			$where = 'pg_catalog.pg_function_is_visible(p.oid)';
+			$distinct = 'DISTINCT ON (p.proname)';
 
-	// Capabilities
+			if ($type) {
+				$where .= " AND p.prorettype = (select oid from pg_catalog.pg_type p where p.typname = 'trigger') ";
+			}
+		}
+		else {
+			$c_schema = $this->_schema;
+			$this->clean($c_schema);
+			$where = "n.nspname = '{$c_schema}'";
+			$distinct = '';
+		}
 
-	function hasByteaHexDefault() { return false; } 
+		$sql = "
+			SELECT
+				{$distinct}
+				p.oid AS prooid,
+				p.proname,
+				p.proretset,
+				pg_catalog.format_type(p.prorettype, NULL) AS proresult,
+				pg_catalog.oidvectortypes(p.proargtypes) AS proarguments,
+				pl.lanname AS prolanguage,
+				pg_catalog.obj_description(p.oid, 'pg_proc') AS procomment,
+				p.proname || ' (' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS proproto,
+				CASE WHEN p.proretset THEN 'setof ' ELSE '' END || pg_catalog.format_type(p.prorettype, NULL) AS proreturns,
+				u.usename AS proowner
+			FROM pg_catalog.pg_proc p
+				INNER JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+				INNER JOIN pg_catalog.pg_language pl ON pl.oid = p.prolang
+				LEFT JOIN pg_catalog.pg_user u ON u.usesysid = p.proowner
+			WHERE NOT p.proisagg
+				AND {$where}
+			ORDER BY p.proname, proresult
+			";
+
+		return $this->selectSet($sql);
+	}
+
+	/**
+	 * Gets all information for an aggregate
+	 * @param $name The name of the aggregate
+	 * @param $basetype The input data type of the aggregate
+	 * @return A recordset
+	 */
+	function getAggregate($name, $basetype) {
+		$c_schema = $this->_schema;
+		$this->clean($c_schema);
+		$this->fieldclean($name);
+		$this->fieldclean($basetype);
+
+		$sql = "
+			SELECT p.proname, CASE p.proargtypes[0]
+				WHEN 'pg_catalog.\"any\"'::pg_catalog.regtype THEN NULL
+				ELSE pg_catalog.format_type(p.proargtypes[0], NULL) END AS proargtypes,
+				a.aggtransfn, format_type(a.aggtranstype, NULL) AS aggstype, a.aggfinalfn,
+				a.agginitval, a.aggsortop, u.usename, pg_catalog.obj_description(p.oid, 'pg_proc') AS aggrcomment
+			FROM pg_catalog.pg_proc p, pg_catalog.pg_namespace n, pg_catalog.pg_user u, pg_catalog.pg_aggregate a
+			WHERE n.oid = p.pronamespace AND p.proowner=u.usesysid AND p.oid=a.aggfnoid
+				AND p.proisagg AND n.nspname='{$c_schema}'
+				AND p.proname='" . $name . "'
+				AND CASE p.proargtypes[0]
+					WHEN 'pg_catalog.\"any\"'::pg_catalog.regtype THEN ''
+					ELSE pg_catalog.format_type(p.proargtypes[0], NULL)
+				END ='" . $basetype . "'";
+
+		return $this->selectSet($sql);
+	}
+
+	/**
+	 * Gets all aggregates
+	 * @return A recordset
+	 */
+	function getAggregates() {
+		$c_schema = $this->_schema;
+		$this->clean($c_schema);
+		$sql = "SELECT p.proname, CASE p.proargtypes[0] WHEN 'pg_catalog.\"any\"'::pg_catalog.regtype THEN NULL ELSE
+			   pg_catalog.format_type(p.proargtypes[0], NULL) END AS proargtypes, a.aggtransfn, u.usename,
+			   pg_catalog.obj_description(p.oid, 'pg_proc') AS aggrcomment
+			   FROM pg_catalog.pg_proc p, pg_catalog.pg_namespace n, pg_catalog.pg_user u, pg_catalog.pg_aggregate a
+			   WHERE n.oid = p.pronamespace AND p.proowner=u.usesysid AND p.oid=a.aggfnoid
+			   AND p.proisagg AND n.nspname='{$c_schema}' ORDER BY 1, 2";
+
+		return $this->selectSet($sql);
+	}
+
+	// Help functions
+
+	function getHelpPages() {
+		include_once('./help/PostgresDoc10.php');
+		return $this->help_page;
+	}
 
 }
-
 ?>

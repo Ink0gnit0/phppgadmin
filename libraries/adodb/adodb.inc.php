@@ -429,7 +429,7 @@
 	 */
 	function __construct()			
 	{
-		die('Virtual Class -- cannot instantiate');
+		//die('Virtual Class -- cannot instantiate');
 	}
 	
 	static function Version()
@@ -963,8 +963,7 @@
 				if (!$array_2d) $inputarr = array($inputarr);
 				foreach($inputarr as $arr) {
 					$sql = ''; $i = 0;
-					//Use each() instead of foreach to reduce memory usage -mikefedyk
-					while(list(, $v) = each($arr)) {
+					foreach($arr as $v) {
 						$sql .= $sqlarr[$i];
 						// from Ron Baldwin <ron.baldwin#sourceprose.com>
 						// Only quote string types	
@@ -2805,6 +2804,7 @@ http://www.stanford.edu/dept/itss/docs/oracle/10g/server.101/b10759/statements_1
 		{
 	        $this->rs = $rs;
 	    }
+
 	    function rewind() 
 		{
 	        $this->rs->MoveFirst();
